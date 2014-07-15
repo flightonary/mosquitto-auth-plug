@@ -37,6 +37,7 @@
 #include "log.h"
 #include "hash.h"
 #include "backends.h"
+#include "topic.h"
 
 #include "be-psk.h"
 #include "be-cdb.h"
@@ -435,7 +436,7 @@ int mosquitto_auth_acl_check(void *userdata, const char *clientid, const char *u
     /* Check global ACL pattern */
 
     if (ud->glob_acl) {
-        mosquitto_topic_matches_sub(ud->glob_acl->topic, topic, &canAccess);
+        topic_matches_sub_with_substitution(ud->glob_acl->topic, topic, clientid, username, &canAccess);
         match = canAccess && (access & ud->glob_acl->access);
   	    if (match == 1) {
             _log(DEBUG, "aclcheck(%s, %s, %d) GLOBAL ACL PATTERN=Y",

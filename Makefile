@@ -43,7 +43,7 @@ OPENSSLDIR=/usr/local/stow/openssl-1.0.0c/
 OSSLINC=-I$(OPENSSLDIR)/include
 OSSLIBS=-L$(OPENSSLDIR)/lib -lcrypto 
 
-OBJS=auth-plug.o base64.o pbkdf2-check.o log.o hash.o be-psk.o be-cdb.o be-mysql.o be-sqlite.o be-redis.o be-postgres.o be-ldap.o
+OBJS=auth-plug.o base64.o pbkdf2-check.o log.o hash.o be-psk.o be-cdb.o be-mysql.o be-sqlite.o be-redis.o be-postgres.o be-ldap.o topic.o
 CFLAGS = -I$(MOSQUITTO_SRC)/src/
 CFLAGS += -I$(MOSQUITTO_SRC)/lib/
 CFLAGS += -fPIC -Wall -Werror $(BACKENDS) $(BE_CFLAGS) -I$(MOSQ)/src -DDEBUG=1 $(OSSLINC)
@@ -72,6 +72,7 @@ base64.o: base64.c base64.h Makefile
 log.o: log.c log.h Makefile
 hash.o: hash.c hash.h uthash.h Makefile
 be-postgres.o: be-postgres.c be-postgres.h Makefile
+topic.o: topic.c topic.h Makefile
 
 np: np.c base64.o
 	$(CC) $(CFLAGS) $^ -o $@ $(OSSLIBS)
