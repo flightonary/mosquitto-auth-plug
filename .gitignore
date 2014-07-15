@@ -3,3 +3,5 @@ np
 *.so
 *.pyc
 jp*.conf
+*.a
+cdb

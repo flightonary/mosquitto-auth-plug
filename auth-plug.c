@@ -72,10 +72,16 @@ struct backend_p {
 	f_aclcheck *aclcheck;
 };
 
+struct global_acl {
+    int access;
+    char *topic;
+};
+
 struct userdata {
 	struct backend_p **be_list;
-	char *superusers;		/* Static glob list */
-	int authentication_be;		/* Back-end number user was authenticated in */
+	char *superusers;		     /* Static glob list */
+    struct global_acl *glob_acl; /* Static global acl */
+	int authentication_be;		 /* Back-end number user was authenticated in */
 };
 
 int pbkdf2_check(char *password, char *hash);
@@ -90,13 +96,16 @@ int mosquitto_auth_plugin_version(void)
 
 int mosquitto_auth_plugin_init(void **userdata, struct mosquitto_auth_opt *auth_opts, int auth_opt_count)
 {
-	int i;
+	int i, j;
 	char *backends = NULL, *p, *q;
 	struct mosquitto_auth_opt *o;
 	struct userdata *ud;
 	int ret = MOSQ_ERR_SUCCESS;
 	int nord;
 	struct backend_p **bep;
+    char *saveptr = NULL, *pattern, *topic;
+    char *access[2] = {NULL, NULL};
+    int access_i = 0x00;
 #ifdef BE_PSK
 	struct backend_p **pskbep;
 	char *psk_database = NULL;
@@ -111,6 +120,7 @@ int mosquitto_auth_plugin_init(void **userdata, struct mosquitto_auth_opt *auth_
 	memset(*userdata, 0, sizeof(struct userdata));
 	ud = *userdata;
 	ud->superusers	= NULL;
+    ud->glob_acl    = NULL;
 	ud->authentication_be = -1;
 
 	/*
@@ -126,6 +136,29 @@ int mosquitto_auth_plugin_init(void **userdata, struct mosquitto_auth_opt *auth_
 
 		if (!strcmp(o->key, "superusers"))
 			ud->superusers = strdup(o->value);
+
+        if (!strcmp(o->key, "global_acl_pattern")) {
+            pattern = strdup(o->value);
+            if((access[1] = strtok_r(pattern, " ", &saveptr))) {
+                access[0] = strsep(&access[1], ",");
+                for(j = 0; access[j] && j < 2; j++) {
+                    if(!strcmp(access[j], "read"))
+                        access_i |= MOSQ_ACL_READ;
+                    else if(!strcmp(access[j], "write"))
+                        access_i |= MOSQ_ACL_WRITE;
+                }
+                if((topic = strtok_r(NULL, " ", &saveptr))) {
+                    ud->glob_acl = (struct global_acl *)malloc(sizeof(struct global_acl));
+                    ud->glob_acl->access = access_i;
+                    ud->glob_acl->topic = strdup(topic);
+                }
+            }
+            free(pattern);
+
+            if(!ud->glob_acl || !ud->glob_acl->access) {
+                _fatal("global_acl_pattern syntax error.");
+            }
+        }
 #if 0
 		if (!strcmp(o->key, "topic_prefix"))
 			ud->topicprefix = strdup(o->value);
@@ -377,6 +410,7 @@ int mosquitto_auth_acl_check(void *userdata, const char *clientid, const char *u
 	struct backend_p **bep;
 	char *backend_name = NULL;
 	int match = 0, authorized = FALSE, nord;
+    bool canAccess;
 
 	_log(DEBUG, "mosquitto_auth_acl_check(..., %s, %s, %s, %d)",
 		clientid ? clientid : "NULL",
@@ -385,7 +419,7 @@ int mosquitto_auth_acl_check(void *userdata, const char *clientid, const char *u
 		access);
 
 
-	if (!username || !*username || !topic || !*topic)
+	if (!clientid || !*clientid || !username || !*username || !topic || !*topic)
 		return MOSQ_ERR_ACL_DENIED;
 
 	/* Check for usernames exempt from ACL checking, first */
@@ -397,6 +431,18 @@ int mosquitto_auth_acl_check(void *userdata, const char *clientid, const char *u
 			return MOSQ_ERR_SUCCESS;
 		}
 	}
+
+    /* Check global ACL pattern */
+
+    if (ud->glob_acl) {
+        mosquitto_topic_matches_sub(ud->glob_acl->topic, topic, &canAccess);
+        match = canAccess && (access & ud->glob_acl->access);
+  	    if (match == 1) {
+            _log(DEBUG, "aclcheck(%s, %s, %d) GLOBAL ACL PATTERN=Y",
+                 username, topic, access);
+            return MOSQ_ERR_SUCCESS;
+        }
+    }
 
 	for (bep = ud->be_list; bep && *bep; bep++) {
 		struct backend_p *b = *bep;
