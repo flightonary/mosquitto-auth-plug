@@ -5,29 +5,39 @@
 #	BE_REDIS
 #	BE_POSTGRES
 
-BACKENDS=-DBE_MYSQL -DBE_POSTGRES -DBE_LDAP
+BACKENDS=-DBE_MYSQL #-DBE_POSTGRES -DBE_LDAP
 
-BE_CFLAGS= -I`pg_config --includedir` `mysql_config --cflags`
-BE_LDFLAGS=`mysql_config --libs` -lpq
-BE_DEPS=
+BE_CFLAGS=
+BE_LDFLAGS=
 
-MOSQUITTO_SRC=/Users/jpm/Auto/pubgit/MQTT/mosquitto/140/mosquitto/
+### MySQL ###
+BE_CFLAGS += `mysql_config --cflags`
+BE_LDFLAGS += `mysql_config --libs`
 
+### PostgreSQL ###
+#BE_CFLAGS += -I`pg_config --includedir`
+#BE_LDFLAGS += -lpq
+
+### cdb ###
 CDBDIR=contrib/tinycdb-0.78
 CDB=$(CDBDIR)/cdb
 CDBINC=$(CDBDIR)/
 CDBLIB=$(CDBDIR)/libcdb.a
 BE_CFLAGS += -I$(CDBINC)/
 BE_LDFLAGS += -L$(CDBDIR) -lcdb
-BE_DEPS += $(CDBLIB)
+BE_DEPS = $(CDBLIB)
 
-BE_LDFLAGS += -lsqlite3
+### sqlite3
+#BE_LDFLAGS += -lsqlite3
 
-BE_CFLAGS += -I/usr/local/include/hiredis
-BE_LDFLAGS += -L/usr/local/lib -lhiredis
+### redis ###
+#BE_CFLAGS += -I/usr/local/include/hiredis
+#BE_LDFLAGS += -L/usr/local/lib -lhiredis
 
-BE_CFLAGS += -I/usr/include
-BE_LDFLAGS += -L/usr/lib -lldap -llber
+### LDAP ###
+#BE_LDFLAGS += -L/usr/lib -lldap -llber
+
+MOSQUITTO_SRC=/Users/jpm/Auto/pubgit/MQTT/mosquitto/140/mosquitto/
 
 OPENSSLDIR=/usr/local/stow/openssl-1.0.0c/
 OSSLINC=-I$(OPENSSLDIR)/include
@@ -37,6 +47,7 @@ OBJS=auth-plug.o base64.o pbkdf2-check.o log.o hash.o be-psk.o be-cdb.o be-mysql
 CFLAGS = -I$(MOSQUITTO_SRC)/src/
 CFLAGS += -I$(MOSQUITTO_SRC)/lib/
 CFLAGS += -fPIC -Wall -Werror $(BACKENDS) $(BE_CFLAGS) -I$(MOSQ)/src -DDEBUG=1 $(OSSLINC)
+BE_CFLAGS += -I/usr/include
 LDFLAGS=$(BE_LDFLAGS) -lmosquitto $(OSSLIBS)
 LDFLAGS += -L$(MOSQUITTO_SRC)/lib/
 # LDFLAGS += -Wl,-rpath,$(../../../../pubgit/MQTT/mosquitto/lib) -lc
@@ -71,5 +82,5 @@ $(CDBLIB):
 pwdb.cdb: pwdb.in
 	$(CDB) -c -m  pwdb.cdb pwdb.in
 clean :
-	rm -f *.o *.so 
+	rm -f *.o *.so np
 	(cd contrib/tinycdb-0.78; make realclean )
