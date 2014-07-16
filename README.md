@@ -21,6 +21,7 @@ and authorization (ACL). Currently not all back-ends have the same capabilities
 | superusers                 |   Y   |       |       |        |      |  2  |    Y     |
 | acl checking               |   Y   |   1   |   1   |   1    |      |  2  |    Y     |
 | static superusers          |   Y   |   Y   |   Y   |   Y    |      |  2  |    Y     |
+| global acl pattern         |   Y   |   Y   |   Y   |   Y    |      |  2  |    Y     |
 
  1. Currently not implemented; back-end returns TRUE
  2. Dependent on the database used by PSK
@@ -28,7 +29,7 @@ and authorization (ACL). Currently not all back-ends have the same capabilities
 
 Multiple back-ends can be configured simultaneously for authentication, and they're attempted in
 the order you specify. Once a user has been authenticated, the _same_ back-end is used to
-check authorization (ACLs). Superusers are checked for in all back-ends.
+check authorization (ACLs). Superusers and global ACL are checked for in all back-ends.
 The configuration option is called `auth_opt_backends` and it takes a
 comma-separated list of back-end names which are checked in exactly that order.
 
@@ -70,10 +71,11 @@ auth_plugin /path/to/auth-plug.so
 Options therein with a leading ```auth_opt_``` are handed to the plugin. The following
 "global" ```auth_opt_*``` plugin options exist:
 
-| Option         | default    |  Mandatory  | Meaning               |
-| -------------- | ---------- | :---------: | --------------------- |
-| backends       |            |     Y       | comma-separated list of back-ends to load |
-| superusers     |            |             | fnmatch(3) case-sensitive string
+| Option             | default    |  Mandatory  | Meaning               |
+| ------------------ | ---------- | :---------: | --------------------- |
+| backends           |            |     Y       | comma-separated list of back-ends to load |
+| superusers         |            |             | fnmatch(3) case-sensitive string |
+| global_acl_pattern |            |             | access and acl pattern string |
 
 Individual back-ends have their options described in the sections below.
 
@@ -435,12 +437,22 @@ auth_opt_redis_port 6379
 # Usernames with this fnmatch(3) (a.k.a glob(3))  pattern are exempt from the
 # module's ACL checking
 auth_opt_superusers S*
+
+# Global ACL Pattern
+# format: (read|write|read,write) <pattern>
+# The access type is controlled using "read" or "write".
+# If allow both, declear "read" and "write" separated by ",".
+# <pattern> can contain the + or # wildcards.
+auth_opt_global_acl_pattern read,write device/+
 ```
 
 ## ACL
 
-In addition to ACL checking which is possibly performed by a back-end,
-there's a more "static" checking which can be configured in `mosquitto.conf`.
+Global ACL are checked for in all back-ends.
+In our example above, any user can pub/sub topics which matches the pattern
+except for superusers.
+
+In addition to ACL checking which is possibly performed by a back-end.
 
 Note that if ACLs are being verified by the plugin, this also applies to
 Will topics (_last will and testament_). Failing to correctly set up
