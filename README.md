@@ -442,8 +442,10 @@ auth_opt_superusers S*
 # format: (read|write|read,write) <pattern>
 # The access type is controlled using "read" or "write".
 # If allow both, declear "read" and "write" separated by ",".
-# <pattern> can contain the + or # wildcards.
-auth_opt_global_acl_pattern read,write device/+
+# <pattern> can contain the + or # wildcards and available for substitution are:
+# - %c to match the client id of the client
+# - %u to match the username of the client
+auth_opt_global_acl_pattern read,write sensor/%u/+
 ```
 
 ## ACL
@@ -451,6 +453,7 @@ auth_opt_global_acl_pattern read,write device/+
 Global ACL are checked for in all back-ends.
 In our example above, any user can pub/sub topics which matches the pattern
 except for superusers.
+You may comment out line of global_acl_pattern in order not to apply global ACL.
 
 In addition to ACL checking which is possibly performed by a back-end.
 
