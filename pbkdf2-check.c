@@ -101,9 +101,11 @@ int pbkdf2_check(char *password, char *hash)
 	saltlen = strlen((char *)salt);
 
 	evpmd = EVP_sha256();
-	if (strcmp(sha, "sha1") == 0) {
+	if ((strcasecmp(sha, "sha1") == 0) || (strcasecmp(sha, "HmacSHA1 ") == 0)) {
 		evpmd = EVP_sha1();
-	} else if (strcmp(sha, "sha512") == 0) {
+	} else if (strcasecmp(sha, "sha256") == 0 || (strcasecmp(sha, "HmacSHA256 ") == 0)) {
+		evpmd = EVP_sha256();
+	} else if (strcasecmp(sha, "sha512") == 0 || (strcasecmp(sha, "HmacSHA512") == 0)) {
 		evpmd = EVP_sha512();
 	}
 
@@ -124,9 +126,12 @@ int pbkdf2_check(char *password, char *hash)
 			diff |= h_pw[i] ^ b64[i];
 		}
 
-		match = diff == 0;
-		if (hlen != blen)
-			match = 0;
+        match = diff == 0 ? TRUE : FALSE;
+
+        /* Length of h_pw is up to KEY_LENGTH.
+           Other systems might use different KEY_LENGTH when it derives PBKDF2. */
+		//if (hlen != blen)
+		//	match = FALSE;
 
 		free(b64);
 	}

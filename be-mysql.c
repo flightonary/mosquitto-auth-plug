@@ -37,6 +37,7 @@
 #include "log.h"
 #include "hash.h"
 #include "backends.h"
+#include "topic.h"
 
 struct mysql_backend {
         MYSQL *mysql;
@@ -58,7 +59,7 @@ static char *get_bool(char *option, char *defval)
     if(!strcmp("true", flag) || !strcmp("false", flag)) {
        return flag;
     }
-    _log(LOG_NOTICE, "WARN: %s is unexpected value -> %s", option, flag);
+    _log(LOG_WARN, "  mysql: %s is unexpected value -> %s", option, flag);
     return defval;
 }
 
@@ -115,8 +116,9 @@ void *be_mysql_init()
     }
 
 	if (!mysql_real_connect(conf->mysql, host, user, pass, dbname, port, NULL, 0)) {
-		fprintf(stderr, "%s\n", mysql_error(conf->mysql));
-        if (!conf->auto_connect && !reconnect) {
+		_log(LOG_WARN, "  mysql: %s", mysql_error(conf->mysql));
+        if (!conf->auto_connect) {
+            // Never connect in this case
             free(conf);
             mysql_close(conf->mysql);
             return (NULL);
@@ -158,7 +160,7 @@ static bool auto_connect(struct mysql_backend *conf)
 {
     if (conf->auto_connect) {
         if (!mysql_real_connect(conf->mysql, conf->host, conf->user, conf->pass, conf->dbname, conf->port, NULL, 0)) {
-            fprintf(stderr, "do auto_connect but %s\n", mysql_error(conf->mysql));
+            _log(LOG_NOTICE, "  mysql: do auto_connect but %s", mysql_error(conf->mysql));
             return false;
         }
         return true;
@@ -178,7 +180,7 @@ char *be_mysql_getuser(void *handle, const char *username, const char *password,
 		return (NULL);
 
     if (mysql_ping(conf->mysql)) {
-        fprintf(stderr, "%s\n", mysql_error(conf->mysql));
+        _log(LOG_NOTICE, "  mysql: %s", mysql_error(conf->mysql));
         if (!auto_connect(conf)) {
             return (NULL);
         }
@@ -194,21 +196,21 @@ char *be_mysql_getuser(void *handle, const char *username, const char *password,
 	sprintf(query, conf->userquery, u);
 	free(u);
 
-	// DEBUG puts(query);
+	_log(LOG_DEBUG, "  mysql: SQL: %s", query);
 
 	if (mysql_query(conf->mysql, query)) {
-		fprintf(stderr, "%s\n", mysql_error(conf->mysql));
+		_log(LOG_WARN, "  mysql: %s", mysql_error(conf->mysql));
 		goto out;
 	}
 
 	res = mysql_store_result(conf->mysql);
 	if ((nrows = mysql_num_rows(res)) != 1) {
-		// DEBUG fprintf(stderr, "rowcount = %ld; not ok\n", nrows);
+		_log(LOG_NOTICE, "  mysql: rowcount = %ld; not ok", nrows);
 		goto out;
 	}
 
 	if (mysql_num_fields(res) != 1) {
-		// DEBUG fprintf(stderr, "numfields not ok\n");
+		_log(LOG_NOTICE, "  mysql: numfields not ok");
 		goto out;
 	}
 
@@ -242,11 +244,13 @@ int be_mysql_superuser(void *handle, const char *username)
 	MYSQL_ROW rowdata;
 
 
-	if (!conf || !conf->superquery)
+	if (!conf || !conf->superquery) {
+        _log(LOG_DEBUG, "  mysql: superquery is not configured");
 		return (FALSE);
+    }
 
     if (mysql_ping(conf->mysql)) {
-        fprintf(stderr, "%s\n", mysql_error(conf->mysql));
+        _log(LOG_NOTICE, "  mysql: %s", mysql_error(conf->mysql));
         if (!auto_connect(conf)) {
             return (FALSE);
         }
@@ -262,20 +266,21 @@ int be_mysql_superuser(void *handle, const char *username)
 	sprintf(query, conf->superquery, u);
 	free(u);
 
-	// puts(query);
+	_log(LOG_DEBUG, "  mysql: SQL: %s", query);
 
 	if (mysql_query(conf->mysql, query)) {
-		fprintf(stderr, "%s\n", mysql_error(conf->mysql));
+		_log(LOG_WARN, "  mysql: %s", mysql_error(conf->mysql));
 		goto out;
 	}
 
 	res = mysql_store_result(conf->mysql);
 	if ((nrows = mysql_num_rows(res)) != 1) {
+        _log(LOG_NOTICE, "  mysql: rowcount = %ld; not ok", nrows);
 		goto out;
 	}
 
 	if (mysql_num_fields(res) != 1) {
-		// DEBUG fprintf(stderr, "numfields not ok\n");
+		_log(LOG_NOTICE, "  mysql: superuser numfields is not 1");
 		goto out;
 	}
 
@@ -303,8 +308,8 @@ int be_mysql_superuser(void *handle, const char *username)
  *	for subscriptions (READ) (1)
  *	for publish (WRITE) (2)
  *
- * SELECT topic FROM table WHERE username = '%s' AND (acc & %d)		// may user SUB or PUB topic?
- * SELECT topic FROM table WHERE username = '%s'              		// ignore ACC
+ * SELECT topic FROM table WHERE (username = '%s') AND (rw & '%d')	// check ACC
+ * SELECT topic FROM table WHERE username = '%s'                	// ignore ACC
  */
 
 int be_mysql_aclcheck(void *handle, const char *username, const char *topic, int acc)
@@ -316,12 +321,15 @@ int be_mysql_aclcheck(void *handle, const char *username, const char *topic, int
 	bool bf;
 	MYSQL_RES *res = NULL;
 	MYSQL_ROW rowdata;
+    unsigned long *lengths;
 
-	if (!conf || !conf->aclquery)
+	if (!conf || !conf->aclquery) {
+        _log(LOG_DEBUG, "  mysql: aclquery is not configured");
 		return (FALSE);
+    }
 
     if (mysql_ping(conf->mysql)) {
-        fprintf(stderr, "%s\n", mysql_error(conf->mysql));
+        _log(LOG_NOTICE, "  mysql: %s", mysql_error(conf->mysql));
         if (!auto_connect(conf)) {
             return (FALSE);
         }
@@ -337,38 +345,35 @@ int be_mysql_aclcheck(void *handle, const char *username, const char *topic, int
 	sprintf(query, conf->aclquery, u, acc);
 	free(u);
 
-	//_log(LOG_DEBUG, "SQL: %s", query);
+	_log(LOG_DEBUG, "  mysql: SQL: %s", query);
 
 	if (mysql_query(conf->mysql, query)) {
-		_log(LOG_NOTICE, "%s", mysql_error(conf->mysql));
+		_log(LOG_WARN, "%s", mysql_error(conf->mysql));
 		goto out;
 	}
 
 	res = mysql_store_result(conf->mysql);
 	if (mysql_num_fields(res) != 1) {
-		fprintf(stderr, "numfields not ok\n");
+		_log(LOG_NOTICE, "  mysql: numfields not ok");
 		goto out;
 	}
 
 	while (match == 0 && (rowdata = mysql_fetch_row(res)) != NULL) {
-		if ((v = rowdata[0]) != NULL) {
-
-			/* Check mosquitto_match_topic. If true,
-			 * if true, set match and break out of loop. */
-
-			// FIXME: does this need special work for %c and %u ???
-			mosquitto_topic_matches_sub(v, topic, &bf);
+        lengths = mysql_fetch_lengths(res);
+		if (lengths > 0) {
+            v = rowdata[0];
+			// FIXME: it needs clientid due to special work for %c.
+            topic_matches_sub_with_substitution(v, topic, "clientid", username, &bf);
 			match |= bf;
-			_log(LOG_DEBUG, "  mysql: topic_matches(%s, %s) == %d",
-				topic, v, bf);
+			_log(LOG_DEBUG, "  mysql: topic_matches(request_topic = %s, db_topic = %s) == %d", topic, v, bf);
 		}
 	}
-
+    
    out:
 
 	mysql_free_result(res);
 	free(query);
-
+    
 	return (match);
 }
 #endif /* BE_MYSQL */

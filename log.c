@@ -33,24 +33,51 @@
 #include <string.h>
 #include <time.h>
 #include "log.h"
-#include <logging_mosq.h>
+
+static int log_level = LOG_WARN; // default log level
+
+void _set_log_level(const char *log_level_str)
+{
+    if (log_level_str == NULL)
+        return;
+    
+    if (strcasecmp("debug", log_level_str) == 0) {
+        log_level = LOG_DEBUG;
+    }
+    else if (strcasecmp("notice", log_level_str) == 0) {
+        log_level = LOG_NOTICE;
+    }
+    else if (strcasecmp("warn", log_level_str) == 0) {
+        log_level = LOG_WARN;
+    }
+    else if (strcasecmp("none", log_level_str) == 0) {
+        log_level = LOG_NONE;
+    }
+}
 
 void _log(int priority, const char *fmt, ...)
 {
 	va_list va;
 	time_t now;
 
+    if (priority < LOG_DEBUG || LOG_NONE <= priority || fmt == NULL) {
+        // not output any log in case that priority is LOG_NONE or args are invalid.
+        return;
+    }
+    
+    if (log_level <= priority) {
+        /* FIXME: use new log function when @ralight is ready */
+        time(&now);
 
-	/* FIXME: use new log function when @ralight is ready */
-	time(&now);
-
-	va_start(va, fmt);
-	fprintf(stderr, "%ld: |-- ", now);
-	vfprintf(stderr, fmt, va);
-	fprintf(stderr, "\n");
-	fflush(stderr);
-	//FIXME: does this work? _mosquitto_log_printf(NULL, MOSQ_LOG_ERR, "NOPE");
-	va_end(va);
+        va_start(va, fmt);
+        fprintf(stderr, "%ld: |-- ", now);
+        vfprintf(stderr, fmt, va);
+        fprintf(stderr, "\n");
+        fflush(stderr);
+        //FIXME: does this work? _mosquitto_log_printf(NULL, MOSQ_LOG_ERR, "NOPE");
+        // That does not work. The function is for mosquitto client, not for plugin.
+        va_end(va);
+    }
 }	
 
 void _fatal(const char *fmt, ...)

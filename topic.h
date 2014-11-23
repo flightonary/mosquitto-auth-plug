@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 Jan-Piet Mens <jpmens()gmail.com>
+ * Copyright (c) 2014 flightonary <jetBeaver@gmail.com>
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -26,16 +26,10 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef _LOG_H_
-#define _LOG_H_
+#ifndef _TOPIC_H_
+#define _TOPIC_H_
 
-#define LOG_DEBUG  (1)
-#define LOG_NOTICE (2)
-#define LOG_WARN   (3)
-#define LOG_NONE   (4)
+char *topic_replace_substitution(const char *topic, const char *clientid, const char *username);
+int topic_matches_sub_with_substitution(const char *sub, const char *topic, const char *clientid, const char *username, bool *result);
 
-void _set_log_level(const char *log_level);
-void _log(int priority, const char *fmt, ...);
-void _fatal(const char *fmt, ...);
-
-#endif //_LOG_H_
+#endif //_TOPIC_H_

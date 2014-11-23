@@ -21,6 +21,7 @@ and authorization (ACL). Currently not all back-ends have the same capabilities
 | superusers                 |   Y   |       |       |        |      |  2  |    Y     |
 | acl checking               |   Y   |   1   |   1   |   1    |      |  2  |    Y     |
 | static superusers          |   Y   |   Y   |   Y   |   Y    |      |  2  |    Y     |
+| global acl pattern         |   Y   |   Y   |   Y   |   Y    |      |  2  |    Y     |
 
  1. Currently not implemented; back-end returns TRUE
  2. Dependent on the database used by PSK
@@ -28,7 +29,7 @@ and authorization (ACL). Currently not all back-ends have the same capabilities
 
 Multiple back-ends can be configured simultaneously for authentication, and they're attempted in
 the order you specify. Once a user has been authenticated, the _same_ back-end is used to
-check authorization (ACLs). Superusers are checked for in all back-ends.
+check authorization (ACLs). Superusers and global ACL are checked for in all back-ends.
 The configuration option is called `auth_opt_backends` and it takes a
 comma-separated list of back-end names which are checked in exactly that order.
 
@@ -70,10 +71,12 @@ auth_plugin /path/to/auth-plug.so
 Options therein with a leading ```auth_opt_``` are handed to the plugin. The following
 "global" ```auth_opt_*``` plugin options exist:
 
-| Option         | default    |  Mandatory  | Meaning               |
-| -------------- | ---------- | :---------: | --------------------- |
-| backends       |            |     Y       | comma-separated list of back-ends to load |
-| superusers     |            |             | fnmatch(3) case-sensitive string
+| Option              | default    |  Mandatory  | Meaning               |
+| ------------------- | ---------- | :---------: | --------------------- |
+| backends            |            |     Y       | comma-separated list of back-ends to load |
+| superusers          |            |             | fnmatch(3) case-sensitive string |
+| superusers_password |            |             | superusers password hash |
+| global_acl_pattern  |            |             | global acl pattern string |
 
 Individual back-ends have their options described in the sections below.
 
@@ -131,13 +134,14 @@ rows for a particular user, each returning EXACTLY one column containing a
 topic (wildcards are supported). A single `'%s`' in the query string is
 replaced by the username attempting to access the broker, and a single `'%d`' is
 replaced with the integer value `1` signifying a read-only access attempt
-(SUB) or `2` signifying a read-write access attempt (PUB).
+(SUB), `2` signifying a write-only access attempt (PUB),
+and `3` signifying a read-write access attempt (PUB/SUB).
 
 In the following example, the table has an `INT(1)` column `rw` containing `1` for
-readonly topics, and `2` for read-write topics:
+read-only topics, `2` for write-only topics, and `3` for read-write topics:
 
 ```sql
-SELECT topic FROM acls WHERE (username = '%s') AND (rw <= %d)
+SELECT topic FROM acls WHERE (username = '%s') AND (rw & %d)
 ```
 
 Mosquitto configuration for the `mysql` back-end:
@@ -152,7 +156,7 @@ auth_opt_pass supersecret
 auth_opt_userquery SELECT pw FROM users WHERE username = '%s'
 auth_opt_superquery SELECT COUNT(*) FROM users WHERE username = '%s' AND super = 1
 #auth_opt_aclquery SELECT topic FROM acls WHERE username = '%s'
-auth_opt_aclquery SELECT topic FROM acls WHERE (username = '%s') AND (rw <= %d)
+auth_opt_aclquery SELECT topic FROM acls WHERE (username = '%s') AND (rw & %d)
 ```
 
 Assuming the following database tables:
@@ -266,6 +270,15 @@ auth_opt_ldap_uri ldap://127.0.0.1/ou=Users,dc=mens,dc=de?cn?sub?(&(objectclass=
 | -------------- | ----------------- | :---------: | ----------  |
 | redis_host     | localhost         |             | hostname / IP address
 | redis_port     | 6379              |             | TCP port number |
+
+```
+listener 1883
+
+auth_plugin /path/to/auth-plug.so
+auth_opt_redis_host 127.0.0.1
+auth_opt_redis_port 6379
+```
+
 
 ### PostgreSQL
 
@@ -433,35 +446,63 @@ $ redis-cli
 > QUIT
 ```
 
-## Configure Mosquitto
+## Plugin Log Level
 
 ```
-listener 1883
-
-auth_plugin /path/to/auth-plug.so
-auth_opt_redis_host 127.0.0.1
-auth_opt_redis_port 6379
-
-# Usernames with this fnmatch(3) (a.k.a glob(3))  pattern are exempt from the
-# module's ACL checking
-auth_opt_superusers S*
+# Plugin log level
+# LOG_LEVEL: DEBUG, NOTICE, WARN, NONE
+auth_opt_plugin_log_level WARN
 ```
+Plugin log level can be specified in `auth_opt_plugin_log_level`.
+Plugin does not output any log in case of NONE.
 
 ## ACL
 
-In addition to ACL checking which is possibly performed by a back-end,
-there's a more "static" checking which can be configured in `mosquitto.conf`.
+```
+# Usernames with this fnmatch(3) (a.k.a glob(3))  pattern are exempt from the
+# module's ACL checking
+auth_opt_superusers S*
+auth_opt_superusers_password PBKDF2$sha256$20000$WCpn9vz/zIQP4Oab$l/CTNNwleyQ28tcJUfIP2OxO2i7TsM88
+
+# Global ACL Pattern
+# format: (read|write|read,write) <pattern>
+# The access type is controlled using "read" or "write".
+# If allow both, declear "read" and "write" separated by ",".
+# <pattern> can contain the + or # wildcards and available for substitution are:
+# - %c to match the client id of the client
+# - %u to match the username of the client
+auth_opt_global_acl_pattern read,write sensor/%u/+
+```
+
+### Superusers
+Users can be given "superuser" status (i.e. they may access any topic)
+if their username matches the _glob_ specified in `auth_opt_superusers`.
+
+In our example above, any user with a username beginning with a capital `"S"`
+is exempt from ACL-checking.
+
+### Global ACL
+Global ACL are applied for non-superuser.
+In our example above, a user can pub/sub topics which matches the pattern.
+You may comment out line of `auth_opt_global_acl_pattern` in order not to apply global ACL.
+
+### ACL by back-ends
+In addition to ACL checking which is possibly performed by a back-end.
 
 Note that if ACLs are being verified by the plugin, this also applies to
 Will topics (_last will and testament_). Failing to correctly set up
 an ACL for these, will cause a broker to silently fail with a 'not
 authorized' message.
 
-Users can be given "superuser" status (i.e. they may access any topic)
-if their username matches the _glob_ specified in `auth_opt_superusers`.
-
-In our example above, any user with a username beginning with a capital `"S"`
-is exempt from ACL-checking.
+## Superusers password
+Superusers password can be given in `auth_opt_superusers_password` 
+as PBKDF2 password hash.
+You may comment out line of `auth_opt_superusers_password` in order not to apply superusers password.
+PBKDF2 password hash can be derived as bellow;
+```
+$ np -i 20000 -p hoge
+$ PBKDF2$sha256$20000$WCpn9vz/zIQP4Oab$l/CTNNwleyQ28tcJUfIP2OxO2i7TsM88
+```
 
 ## PUB/SUB
 

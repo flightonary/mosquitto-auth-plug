@@ -36,26 +36,33 @@
 #include <openssl/rand.h>
 #include "base64.h"
 
-#define KEY_LENGTH      24
-#define SEPARATOR       "$"
-#define SALTLEN 12
+#define DEFAULT_KEY_LEN  24
+#define SEPARATOR        "$"
+#define DEFAULT_SALT_LEN 12
 
-#define USAGE() fprintf(stderr, "Usage: %s [-i iterations] [-p password]\n", progname)
+#define USAGE() printUsage()
+
+static char *progname;
+int printUsage(void)
+{
+    return fprintf(stderr, "Usage: %s [-i iterations] [-p password] [-k key_length] [-s salt_length]\n", progname);
+}
 
 int main(int argc, char **argv)
 {
-        int iterations = 901, rc, saltlen, blen;
-	unsigned char	saltbytes[SALTLEN];
+    int iterations = 901, rc, saltlen, blen;
 	char *salt, *b64;
-	unsigned char key[128];
+	unsigned char key[128], saltbytes[128];
 	char *pw1, *pw2, *password;
-	char *progname = argv[0];
 	int c;
 	int prompt;
+    int key_length = DEFAULT_KEY_LEN;
+    int salt_length = DEFAULT_SALT_LEN;
 
+    progname = argv[0];
 	prompt = 1;
 
-	while ((c = getopt(argc, argv, "ip:")) != EOF) {
+	while ((c = getopt(argc, argv, "i:p:k:s:")) != EOF) {
 		switch (c) {
 			case 'i':
 				iterations = atoi(optarg);
@@ -64,6 +71,14 @@ int main(int argc, char **argv)
 				pw1 = strdup(optarg);
 				pw2 = strdup(optarg);	
 				prompt = 0;
+				break;
+            case 'k':
+                key_length = atoi(optarg);
+                key_length = key_length > 128 ? 128 : key_length;
+				break;
+            case 's':
+                salt_length = atoi(optarg);
+                salt_length = salt_length > 128 ? 128 : salt_length;
 				break;
 			default:
 				exit(USAGE());
@@ -89,21 +104,21 @@ int main(int argc, char **argv)
 
 	password = pw1;
 
-	rc = RAND_bytes(saltbytes, SALTLEN);
+	rc = RAND_bytes(saltbytes, salt_length);
 	if (rc == 0) {
 		fprintf(stderr, "Cannot get random bytes for salt!\n");
 		return 2;
 	}
 
-	base64_encode(saltbytes, SALTLEN, &salt);
+	base64_encode(saltbytes, salt_length, &salt);
 	saltlen = strlen(salt);
 
 	PKCS5_PBKDF2_HMAC(password, strlen(password),
                 (unsigned char *)salt, saltlen,
 		iterations,
-		EVP_sha256(), KEY_LENGTH, key);
+		EVP_sha256(), key_length, key);
 
-	blen = base64_encode(key, KEY_LENGTH, &b64);
+	blen = base64_encode(key, key_length, &b64);
 	if (blen > 0) {
 		printf("PBKDF2$%s$%d$%s$%s\n",
 			"sha256",
